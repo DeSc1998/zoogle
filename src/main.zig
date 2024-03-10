@@ -12,187 +12,87 @@ fn collectArgs() !std.ArrayList([]const u8) {
     return args;
 }
 
-// Source of the Emitter: https://ziggit.dev/t/pretty-printing-the-zig-ast-to-json/2719/2
-fn AstEmitter(comptime Stream: type) type {
-    return struct {
-        ast: *std.zig.Ast,
-        ws: Stream,
+const FunctionDef = struct {
+    name: []const u8,
+    return_type: []const u8,
+    params: []const []const u8,
+};
 
-        const EmitError = Stream.Error;
-        const Self = @This();
-
-        pub fn init(ws: Stream, ast: *std.zig.Ast) @This() {
-            return @This(){
-                .ws = ws,
-                .ast = ast,
-            };
-        }
-
-        fn write(self: *Self, v: anytype) EmitError!void {
-            try self.ws.write(v);
-        }
-
-        fn objectField(self: *Self, f: []const u8) EmitError!void {
-            try self.ws.objectField(f);
-        }
-
-        fn beginObject(self: *Self) EmitError!void {
-            try self.ws.beginObject();
-        }
-
-        fn endObject(self: *Self) EmitError!void {
-            try self.ws.endObject();
-        }
-
-        fn beginArray(self: *Self) EmitError!void {
-            try self.ws.beginArray();
-        }
-
-        fn endArray(self: *Self) EmitError!void {
-            try self.ws.endArray();
-        }
-
-        pub fn emitRoot(self: *Self) EmitError!void {
-            try self.beginArray();
-            for (self.ast.rootDecls()) |idx| {
-                try self.emitNode(idx);
-            }
-            try self.endArray();
-        }
-
-        fn visibToken(self: *Self, tok_idx: ?std.zig.Ast.TokenIndex) EmitError!void {
-            try self.objectField("visib_token");
-            if (tok_idx) |idx| {
-                try self.emitToken(null, idx);
-            } else {
-                try self.write(null);
-            }
-        }
-
-        fn fnProto(self: *Self, proto: std.zig.Ast.full.FnProto) EmitError!void {
-            try self.emitToken("name_token", proto.ast.fn_token + 1);
-
-            try self.objectField("params");
-            try self.beginArray();
-            var param_it = proto.iterate(self.ast);
-            while (param_it.next()) |param| {
-                try self.beginObject();
-                try self.objectField("name_token");
-                if (param.name_token) |nt| {
-                    try self.emitToken(null, nt);
-                } else {
-                    try self.write(null);
-                }
-
-                try self.objectField("type_expr");
-                try self.emitNode(param.type_expr);
-
-                try self.endObject();
-            }
-            try self.endArray();
-
-            try self.visibToken(proto.visib_token);
-        }
-
-        fn fnDecl(self: *Self, node_idx: std.zig.Ast.Node.Index) EmitError!void {
+fn collectFunctions(ast: *std.zig.Ast) !std.ArrayList(FunctionDef) {
+    var functions = std.ArrayList(FunctionDef).init(allocator);
+    for (ast.rootDecls()) |decl_idx| {
+        const decl = ast.nodes.get(decl_idx);
+        if (decl.tag == .fn_decl) {
             var buffer: [1]std.zig.Ast.Node.Index = undefined;
-            if (self.ast.fullFnProto(&buffer, node_idx)) |p| {
-                try self.fnProto(p);
+            if (ast.fullFnProto(&buffer, decl_idx)) |fn_decl| {
+                const params = try collectParams(ast, fn_decl);
+                const return_type = ast.nodes.get(fn_decl.ast.return_type);
+
+                try functions.append(.{
+                    .name = ast.tokenSlice(fn_decl.ast.fn_token + 1),
+                    .return_type = try typeindexToSlice(ast, (return_type)),
+                    .params = params.items,
+                });
             }
         }
+    }
+    return functions;
+}
 
-        fn typeNode(self: *Self, node_idx: std.zig.Ast.Node.Index) EmitError!void {
-            try self.objectField("type_node");
-            try self.write(@tagName(self.ast.nodes.items(.tag)[node_idx]));
-        }
+fn collectParams(ast: *std.zig.Ast, proto: std.zig.Ast.full.FnProto) !std.ArrayList([]const u8) {
+    var params = std.ArrayList([]const u8).init(allocator);
+    var param_it = proto.iterate(ast);
+    while (param_it.next()) |param| {
+        const type_node = ast.nodes.get(param.type_expr);
+        try params.append(try typeindexToSlice(ast, type_node));
+    }
+    return params;
+}
 
-        fn simpleVarDecl(self: *Self, node_idx: std.zig.Ast.Node.Index) EmitError!void {
-            const vd = self.ast.simpleVarDecl(node_idx);
-
-            try self.objectField("type_node");
-            if (vd.ast.type_node != 0) {
-                try self.emitNode(vd.ast.type_node);
+fn typeindexToSlice(ast: *std.zig.Ast, node: std.zig.Ast.Node) ![]const u8 {
+    const Node = std.zig.Ast.Node;
+    _ = Node;
+    switch (node.tag) {
+        .identifier => {
+            return ast.tokenSlice(node.main_token);
+        },
+        .call_one => {
+            const lhs = try typeindexToSlice(ast, ast.nodes.get(node.data.lhs));
+            const rhs = try typeindexToSlice(ast, ast.nodes.get(node.data.rhs));
+            return try std.mem.concat(allocator, u8, &[_][]const u8{ lhs, "(", rhs, ")" });
+        },
+        .field_access => {
+            const lhs = try typeindexToSlice(ast, ast.nodes.get(node.data.lhs));
+            const rhs = ast.tokenSlice(node.data.rhs);
+            //const rhs = try typeindexToSlice(ast, ast.nodes.get(node.data.rhs));
+            return try std.mem.concat(allocator, u8, &[_][]const u8{ lhs, ".", rhs });
+        },
+        .number_literal => {
+            return try std.fmt.allocPrint(allocator, "{}", .{node.main_token});
+        },
+        .ptr_type => {
+            const rhs = try typeindexToSlice(ast, ast.nodes.get(node.data.rhs));
+            return try std.mem.concat(allocator, u8, &[_][]const u8{ "*", rhs });
+        },
+        .array_type => {
+            const lhs = try typeindexToSlice(ast, ast.nodes.get(node.data.lhs));
+            const rhs = try typeindexToSlice(ast, ast.nodes.get(node.data.rhs));
+            return try std.mem.concat(allocator, u8, &[_][]const u8{ "[", lhs, "]", rhs });
+        },
+        .ptr_type_aligned => {
+            const rhs = try typeindexToSlice(ast, ast.nodes.get(node.data.rhs));
+            const main_token = ast.tokenSlice(node.main_token);
+            if (std.mem.eql(u8, main_token, "*")) {
+                return try std.mem.concat(allocator, u8, &[_][]const u8{ "*", rhs });
             } else {
-                try self.write(null);
+                return try std.mem.concat(allocator, u8, &[_][]const u8{ "[]", rhs });
             }
-
-            try self.visibToken(vd.visib_token);
-
-            try self.objectField("init_node");
-            try self.emitNode(vd.ast.init_node);
-        }
-
-        fn containerFieldInit(self: *Self, node_idx: std.zig.Ast.Node.Index) EmitError!void {
-            const cfi = self.ast.containerFieldInit(node_idx);
-
-            try self.emitToken("main_token", cfi.ast.main_token);
-
-            try self.objectField("type_expr");
-            try self.emitNode(cfi.ast.type_expr);
-
-            try self.objectField("value_expr");
-            if (cfi.ast.value_expr != 0) {
-                try self.emitNode(cfi.ast.value_expr);
-            } else {
-                try self.write(null);
-            }
-        }
-
-        fn containerDecl(self: *Self, node_idx: std.zig.Ast.Node.Index) EmitError!void {
-            const cd = self.ast.containerDecl(node_idx);
-
-            try self.emitToken("main_token", cd.ast.main_token);
-
-            try self.objectField("members");
-            try self.beginArray();
-            for (cd.ast.members) |m| {
-                try self.emitNode(m);
-            }
-            try self.endArray();
-        }
-
-        fn emitToken(self: *Self, field: ?[]const u8, token_idx: std.zig.Ast.TokenIndex) EmitError!void {
-            if (field) |f| {
-                try self.objectField(f);
-            }
-            try self.beginObject();
-            try self.objectField("value");
-            try self.write(self.ast.tokenSlice(token_idx));
-            try self.endObject();
-        }
-
-        fn emitNode(self: *Self, node_idx: std.zig.Ast.Node.Index) EmitError!void {
-            const n = self.ast.nodes.get(node_idx);
-            //std.debug.print("AST node {d}: {any}\n", .{ node_idx, n });
-            try self.beginObject();
-            try self.objectField("tag");
-            try self.write(@tagName(n.tag));
-            switch (n.tag) {
-                .fn_decl => {
-                    try self.fnDecl(node_idx);
-                },
-                .simple_var_decl => {
-                    try self.simpleVarDecl(node_idx);
-                },
-                .container_decl => {
-                    try self.containerDecl(node_idx);
-                },
-                .container_field_init => {
-                    try self.containerFieldInit(node_idx);
-                },
-                .identifier => {
-                    try self.emitToken("main_token", n.main_token);
-                },
-                .number_literal => {
-                    try self.emitToken("main_token", n.main_token);
-                },
-                else => {
-                    // do nothing for unhandled ast nodes
-                },
-            }
-            try self.endObject();
-        }
-    };
+        },
+        else => |tag| {
+            std.debug.print("not implemented type: {}\n", .{tag});
+            return error.NotImplemented;
+        },
+    }
 }
 
 pub fn main() !void {
@@ -214,11 +114,10 @@ pub fn main() !void {
         var ast = try std.zig.Ast.parse(allocator, source, .zig);
         defer ast.deinit(allocator);
 
-        const stdout = std.io.getStdOut().writer();
-        var ws = std.json.writeStream(stdout, .{ .whitespace = .indent_2 });
-        defer ws.deinit();
-
-        var emit = AstEmitter(@TypeOf(ws)).init(ws, &ast);
-        try emit.emitRoot();
+        const functions = try collectFunctions(&ast);
+        defer functions.deinit();
+        for (functions.items) |f| {
+            std.debug.print("fn {s} {s} {s}\n", .{ f.name, f.params, f.return_type });
+        }
     }
 }
