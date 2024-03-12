@@ -39,32 +39,26 @@ pub fn main() !void {
         }
     }
     for (files.items) |file| {
-        const tmp = try std.fs.cwd().readFileAlloc(allocator, file, std.math.maxInt(usize));
-        const source = try allocator.dupeZ(u8, tmp);
-        defer allocator.free(tmp);
-        defer allocator.free(source);
-
-        var ast = try std.zig.Ast.parse(allocator, source, .zig);
-        defer ast.deinit(allocator);
-
-        const functions = try defs.collectFunctions(&ast);
+        const functions = try defs.collectFunctionsFile(allocator, file, false);
         defer functions.deinit();
-        for (functions.items) |f| {
-            const params = try std.mem.join(allocator, ", ", f.params);
-            defer allocator.free(params);
-            std.debug.print("fn {s}({s}) {s}\n", .{ f.name, params, f.return_type });
+        for (functions.items) |*f| {
+            defer f.deinit();
+            const out = try f.format();
+            defer f.alloc.free(out);
+            std.debug.print("{s}\n", .{out});
         }
     }
 }
 
 test "function type" {
     const alloc = std.testing.allocator;
-    const source = "fn f(_: i32, _:  _) void {}";
+    const source = try alloc.dupeZ(u8, "fn f(i32, _:  _, _: _a) void {}");
     var ast = try std.zig.Ast.parse(alloc, source, .zig);
     defer ast.deinit(alloc);
-    const functions = try defs.collectFunctions(&ast);
+    const functions = try defs.collectFunctions(alloc, &ast, false);
     defer functions.deinit();
     try std.testing.expect(functions.items.len == 1);
-    const f = functions.items[0];
-    std.debug.print("fn {s} {s} {s}\n", .{ f.name, f.params, f.return_type });
+    var f = functions.items[0];
+    defer f.deinit();
+    std.debug.print("{s}\n", .{try f.format()});
 }
