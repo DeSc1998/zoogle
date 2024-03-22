@@ -100,8 +100,8 @@ fn collectFunctionsFromStruct(
     const struct_members = try tree.filterDecls(container_decl);
     defer struct_members.deinit();
     for (struct_members.items) |member| {
+        if (skip_private and is_private(member)) continue;
         if (tree.NodeType.eql(.FnProto, member)) {
-            if (skip_private and is_private(member)) continue;
             var func = try collectFunction(alloc, source, member);
             try func.attachStructName(try nodeToSlice(alloc, source, struct_name));
             try functions.append(func);

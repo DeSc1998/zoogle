@@ -1,5 +1,6 @@
 const std = @import("std");
 const defs = @import("definitions.zig");
+const matcher = @import("match.zig");
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const allocator = arena.allocator();
@@ -62,15 +63,20 @@ pub fn main() !void {
             try files.append(args.items[i]);
         }
     }
+    var parsed_functions = std.ArrayList(defs.FunctionDef).init(allocator);
+    defer parsed_functions.deinit();
     for (files.items) |file| {
         const functions = try defs.collectFunctionsFile(allocator, file, true);
         defer functions.deinit();
-        for (functions.items) |*f| {
-            defer f.deinit();
-            const out = try f.format();
-            defer f.alloc.free(out);
-            std.debug.print("{s}\n", .{out});
-        }
+        try parsed_functions.appendSlice(functions.items);
+    }
+    const metrics = try matcher.match(allocator, parsed_functions.items[0], parsed_functions.items);
+    defer allocator.free(metrics);
+    for (metrics) |m| {
+        std.debug.print("value {}: {s}\n", .{ m.value, try m.function.format() });
+    }
+    for (parsed_functions.items) |*f| {
+        defer f.deinit();
     }
 }
 

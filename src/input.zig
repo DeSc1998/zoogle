@@ -18,6 +18,7 @@ const Tokenizer = struct {
     };
     const TokenType = enum {
         Keyword,
+        Identifier,
         ParanenthesisOpen,
         ParanenthesisClose,
         Comma,
@@ -70,10 +71,19 @@ const Tokenizer = struct {
         };
     }
 
+    fn anyOf(char: u8, chars: []const u8) bool {
+        for (chars) |c| {
+            if (char == c) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     fn tokenizeType(self: *Self) !Token {
         const start = self.index;
         while (self.next()) |char| {
-            if (!std.ascii.isAlNum(char)) {
+            if (std.ascii.isControl(char) or std.ascii.isSpace(char) or anyOf(char, "(,)")) {
                 break;
             }
         } else |err| {
@@ -102,7 +112,7 @@ const Tokenizer = struct {
                     .value = self.source[current..self.index],
                     .kind = .Comma,
                 },
-                'f' => return self.tokenizeKeyword(current, "fn"),
+                'f' => if (self.source[self.index + 1] == 'n') return self.tokenizeKeyword(current, "fn") else return self.tokenizeType(),
                 else => return self.tokenizeType(),
             }
         } else |err| {
@@ -166,13 +176,14 @@ const Parser = struct {
 
     fn parse(self: *Self, alloc: std.mem.Allocator) !defs.FunctionDef {
         _ = try self.expectToken(.Keyword);
+        const identifier = self.expectToken(.Type) catch null;
         _ = try self.expectToken(.ParanenthesisOpen);
         const params = try self.parseParams();
         _ = try self.expectToken(.ParanenthesisClose);
         const returnType = try self.expectToken(.Type);
         return defs.FunctionDef{
             .alloc = alloc,
-            .name = try alloc.alloc(u8, 0),
+            .name = if (identifier) |id| try alloc.dupe(u8, id.value) else try alloc.alloc(u8, 0),
             .return_type = try alloc.dupe(u8, returnType.value),
             .params = params,
         };
