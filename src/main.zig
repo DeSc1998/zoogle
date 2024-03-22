@@ -39,7 +39,7 @@ pub fn main() !void {
         }
     }
     for (files.items) |file| {
-        const functions = try defs.collectFunctionsFile(allocator, file, false);
+        const functions = try defs.collectFunctionsFile(allocator, file, true);
         defer functions.deinit();
         for (functions.items) |*f| {
             defer f.deinit();

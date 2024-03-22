@@ -1,0 +1,15 @@
+.{
+	.name = "zoogle",
+	.version = "0.0.0",
+	.dependencies = .{
+		.@"zig-tree-sitter" = .{
+			.url = "https://github.com/vhyrro/zig-tree-sitter/archive/c172f46c66d0220bf835b9880acd67e81b68a63f.tar.gz",
+			.hash = "12209255c77b7f73e0f39513c4808a0fe0342e94e1288178884db62a1c3f9b2b236c",
+		},
+	},
+	.paths = .{
+		"src/main.zig",
+		"build.zig",
+		"build.zig.zon",
+	},
+}
