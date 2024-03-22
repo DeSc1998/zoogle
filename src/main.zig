@@ -28,6 +28,30 @@ fn bar(c: u8) Array(u8, 10) {
     return [_]u8{c} ** 10;
 }
 
+pub const Foo = struct {
+    a: u8,
+    b: u8,
+    c: u8,
+
+    pub const Inner = struct {
+        a: u8,
+        b: u8,
+        c: u8,
+
+        pub fn format(self: Inner, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            _ = fmt;
+            _ = options;
+            try writer.print("a: {}, b: {}, c: {}", .{ self.a, self.b, self.c });
+        }
+    };
+
+    pub fn format(self: Foo, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("a: {}, b: {}, c: {}", .{ self.a, self.b, self.c });
+    }
+};
+
 pub fn main() !void {
     const args = try collectArgs();
     var files = std.ArrayList([]const u8).init(allocator);

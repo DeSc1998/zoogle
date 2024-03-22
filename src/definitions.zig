@@ -38,12 +38,11 @@ pub fn collectFunctions(alloc: std.mem.Allocator, t: *tree.Tree, source: []const
     var functions = std.ArrayList(FunctionDef).init(alloc);
     const decls = try tree.filterDecls(t.root());
     for (decls.items) |decl| {
+        if (skip_private and is_private(decl)) continue;
         if (tree.NodeType.eql(.FnProto, decl)) {
-            if (skip_private and is_private(decl)) continue;
             const func = try collectFunction(alloc, source, decl);
             try functions.append(func);
         } else if (tree.NodeType.eql(.VarDecl, decl)) {
-            if (skip_private and is_private(decl)) continue;
             if (is_struct(decl) or is_enum(decl) or is_union(decl)) {
                 const struct_funcs = try collectFunctionsFromStruct(alloc, decl, source, skip_private);
                 defer struct_funcs.deinit();
@@ -55,7 +54,7 @@ pub fn collectFunctions(alloc: std.mem.Allocator, t: *tree.Tree, source: []const
 }
 
 fn is_private(decl: tree.Node) bool {
-    const parent = tree.expectNodeByType(decl.parent(), .Decl) catch unreachable;
+    const parent = tree.expectNodeByType(decl.parent(), .Decl) catch return false;
     _ = tree.expectNodeBySlice(parent.prev_sibling(), "pub") catch |err| {
         if (err == error.NodeNotFound) return true;
         if (err == error.NodeTypeMismatch) return true;
@@ -65,6 +64,7 @@ fn is_private(decl: tree.Node) bool {
 }
 
 fn is_struct_impl(decl: tree.Node, chars: []const u8) bool {
+    // NOTE: last child of decl is ';'
     const expr_node = tree.expectNodeByType(decl.child(decl.child_count() - 2), .ErrorUnionExpr) catch return false;
     const suffix_node = tree.expectNodeByType(expr_node.child(0), .SuffixExpr) catch return false;
     const container_decl = tree.expectNodeByType(suffix_node.child(0), .ContainerDecl) catch return false;
@@ -93,7 +93,8 @@ fn collectFunctionsFromStruct(
 ) !std.ArrayList(FunctionDef) {
     var functions = std.ArrayList(FunctionDef).init(alloc);
     const struct_name = try tree.expectNodeByType(node.child(1), .Identifier);
-    const struct_node = try tree.expectNodeByType(node.child(3), .ErrorUnionExpr);
+    // NOTE: last child of node is ';'
+    const struct_node = try tree.expectNodeByType(node.child(node.child_count() - 2), .ErrorUnionExpr);
     const suffix_node = try tree.expectNodeByType(struct_node.child(0), .SuffixExpr);
     const container_decl = try tree.expectNodeByType(suffix_node.child(0), .ContainerDecl);
     const struct_members = try tree.filterDecls(container_decl);
@@ -104,6 +105,15 @@ fn collectFunctionsFromStruct(
             var func = try collectFunction(alloc, source, member);
             try func.attachStructName(try nodeToSlice(alloc, source, struct_name));
             try functions.append(func);
+        } else if (tree.NodeType.eql(.VarDecl, member)) {
+            if (is_struct(member) or is_enum(member) or is_union(member)) {
+                const struct_funcs = try collectFunctionsFromStruct(alloc, member, source, skip_private);
+                defer struct_funcs.deinit();
+                for (struct_funcs.items) |*f| {
+                    try f.attachStructName(try nodeToSlice(alloc, source, struct_name));
+                }
+                try functions.appendSlice(struct_funcs.items);
+            }
         }
     }
     return functions;
