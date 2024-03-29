@@ -1,6 +1,8 @@
 const std = @import("std");
 const defs = @import("definitions.zig");
 const matcher = @import("match.zig");
+const files = @import("files.zig");
+const input = @import("input.zig");
 
 var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 const allocator = arena.allocator();
@@ -54,18 +56,14 @@ pub const Foo = struct {
 };
 
 pub fn main() !void {
-    const args = try collectArgs();
-    var files = std.ArrayList([]const u8).init(allocator);
-    defer files.deinit();
-    var i: usize = 0;
-    while (i < args.items.len) : (i += 1) {
-        if (std.mem.endsWith(u8, args.items[i], ".zig")) {
-            try files.append(args.items[i]);
-        }
-    }
+    // const args = try collectArgs();
+    const srcFiles = try files.filesOfDir(allocator, try std.fs.cwd().openIterableDir("src", .{}));
+    defer srcFiles.deinit();
+    const fs = try files.filterZigFiles(allocator, srcFiles);
+    defer fs.deinit();
     var parsed_functions = std.ArrayList(defs.FunctionDef).init(allocator);
     defer parsed_functions.deinit();
-    for (files.items) |file| {
+    for (fs.items) |file| {
         const functions = try defs.collectFunctionsFile(allocator, file, true);
         defer functions.deinit();
         try parsed_functions.appendSlice(functions.items);
@@ -76,7 +74,7 @@ pub fn main() !void {
         std.debug.print("value {}: {s}\n", .{ m.value, try m.function.format() });
     }
     for (parsed_functions.items) |*f| {
-        defer f.deinit();
+        f.deinit();
     }
 }
 
