@@ -169,7 +169,6 @@ const Parser = struct {
         var params = std.ArrayList([]const u8).init(alloc);
         while (self.expectToken(.Type)) |token| {
             try params.append(try alloc.dupe(u8, token.value));
-            try self.tokenizer.skipWhitespace();
             const comma = self.expectToken(.Comma);
             if (comma) |_| {} else |err| {
                 if (err != error.UnexpectedToken) {
@@ -178,7 +177,6 @@ const Parser = struct {
                     break;
                 }
             }
-            try self.tokenizer.skipWhitespace();
         }
         return params;
     }
