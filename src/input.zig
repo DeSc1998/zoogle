@@ -112,8 +112,17 @@ const Tokenizer = struct {
                     .value = self.source[current..self.index],
                     .kind = .Comma,
                 },
-                'f' => if (self.source[self.index + 1] == 'n') return self.tokenizeKeyword(current, "fn") else return self.tokenizeType(),
-                else => return self.tokenizeType(),
+                'f' => {
+                    const c = if (self.next()) |c| c else |err| return self.handleError(err, current);
+                    if (c == 'n') return Token{ .value = self.source[current..self.index], .kind = .Keyword } else {
+                        self.index = current;
+                        return self.tokenizeType();
+                    }
+                },
+                else => {
+                    self.index = current;
+                    return self.tokenizeType();
+                },
             }
         } else |err| {
             return self.handleError(err, current);
@@ -178,7 +187,7 @@ const Parser = struct {
         _ = try self.expectToken(.Keyword);
         const identifier = self.expectToken(.Type) catch null;
         _ = try self.expectToken(.ParanenthesisOpen);
-        const params = try self.parseParams();
+        const params = try self.parseParams(alloc);
         _ = try self.expectToken(.ParanenthesisClose);
         const returnType = try self.expectToken(.Type);
         return defs.FunctionDef{
