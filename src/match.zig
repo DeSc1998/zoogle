@@ -54,7 +54,7 @@ fn matchMetric(target: defs.FunctionDef, candidat: defs.FunctionDef) i32 {
     const matchName = matchLoosely(target.name, candidat.name);
     const matchReturn = matchLooselyReversed(target.return_type, candidat.return_type);
     const diff: i128 = @as(i128, target.params.items.len) - @as(i128, candidat.params.items.len);
-    var matchParams = if (std.math.absInt(diff)) |d| @as(i32, @truncate(d)) * -20 else |_| 0;
+    var matchParams = if (std.math.absInt(diff)) |d| @as(i32, @truncate(d)) * -50 else |_| 0;
     if (diff == 0) {
         for (target.params.items, candidat.params.items) |t, c| {
             matchParams += matchLooselyReversed(t, c);
