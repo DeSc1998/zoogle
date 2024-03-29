@@ -26,3 +26,33 @@ pub fn filterZigFiles(alloc: std.mem.Allocator, files: std.ArrayList([]const u8)
     }
     return result;
 }
+
+pub fn stdFiles(alloc: std.mem.Allocator, version: []const u8) !std.ArrayList([]const u8) {
+    const stdPath = findStdFromZigup(alloc, version) catch "/usr/lib/zig/std";
+    var dir = try std.fs.openDirAbsolute(stdPath, .{});
+    defer dir.close();
+    const files = filesOfDir(alloc, dir.makeOpenPathIterable(".", .{}));
+    return files;
+}
+
+fn findStdFromZigup(alloc: std.mem.Allocator, version: []const u8) ![]const u8 {
+    if (!isZigupinstalled()) {
+        return error.ZigupNotInstalled;
+    }
+    const home = std.os.getenv("HOME") orelse return error.HomeEnvNotSet;
+    const zig = try std.fs.path.join(alloc, &[_][]const u8{ home, "zig", version, "files/lib/std" });
+    defer alloc.free(zig);
+
+    if (std.fs.accessAbsolute(zig, .{})) |_| {
+        return zig;
+    } else |_| {
+        return error.DirectoryNotFound;
+    }
+}
+
+fn isZigupinstalled() bool {
+    const binDir = std.fs.openDirAbsolute("/usr/bin", .{}) catch return false; // TODO: only works on linux
+    defer binDir.close();
+    binDir.access("zigup", .{}) catch return false;
+    return true;
+}
