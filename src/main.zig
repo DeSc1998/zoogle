@@ -56,7 +56,12 @@ pub const Foo = struct {
 };
 
 pub fn main() !void {
-    // const args = try collectArgs();
+    const args = try collectArgs();
+    if (args.items.len < 2) {
+        std.debug.print("usage: zoogle <input>\n", .{});
+        return error.NotEnoughArgs;
+    }
+    const in = try input.parse(allocator, args.items[1]);
     const srcFiles = try files.filesOfDir(allocator, try std.fs.cwd().openIterableDir("src", .{}));
     defer srcFiles.deinit();
     const fs = try files.filterZigFiles(allocator, srcFiles);
@@ -68,7 +73,7 @@ pub fn main() !void {
         defer functions.deinit();
         try parsed_functions.appendSlice(functions.items);
     }
-    const metrics = try matcher.match(allocator, parsed_functions.items[0], parsed_functions.items);
+    const metrics = try matcher.match(allocator, in, parsed_functions.items);
     defer allocator.free(metrics);
     for (metrics) |m| {
         std.debug.print("value {}: {s}\n", .{ m.value, try m.function.format() });
@@ -80,13 +85,9 @@ pub fn main() !void {
 
 test "function type" {
     const alloc = std.testing.allocator;
-    const source = try alloc.dupeZ(u8, "fn f(i32, _:  _, _: _a) void {}");
-    var ast = try std.zig.Ast.parse(alloc, source, .zig);
-    defer ast.deinit(alloc);
-    const functions = try defs.collectFunctions(alloc, &ast, false);
-    defer functions.deinit();
-    try std.testing.expect(functions.items.len == 1);
-    var f = functions.items[0];
-    defer f.deinit();
-    std.debug.print("{s}\n", .{try f.format()});
+    const source = "fn f(i32, _, _a) void";
+    var def = try input.parse(alloc, source);
+    defer def.deinit();
+    std.debug.print("{s}\n", .{try def.format()});
+    try std.testing.expect(def.params.items.len == 2);
 }
