@@ -5,6 +5,8 @@ const InputError = error{
     OutOfMemory,
     EndOfInput,
     NotImplemented,
+    PrintError,
+    UnexpectedToken,
 };
 
 const Tokenizer = struct {
@@ -26,7 +28,7 @@ const Tokenizer = struct {
         EndOfFile,
     };
 
-    fn next(self: *Self) !u8 {
+    fn next(self: *Self) InputError!u8 {
         if (self.index >= self.source.len) {
             return InputError.EndOfInput;
         }
@@ -35,7 +37,7 @@ const Tokenizer = struct {
         return c;
     }
 
-    fn handleError(self: Self, err: InputError, start: usize) !Token {
+    fn handleError(self: Self, err: InputError, start: usize) InputError!Token {
         if (err != InputError.EndOfInput) {
             return err;
         }
@@ -53,7 +55,7 @@ const Tokenizer = struct {
         }
     }
 
-    fn tokenizeKeyword(self: *Self, start: usize, keyword: []const u8) !Token {
+    fn tokenizeKeyword(self: *Self, start: usize, keyword: []const u8) InputError!Token {
         var i: usize = 0;
         while (i < keyword.len) : (i += 1) {
             if (self.next()) |char| {
@@ -80,22 +82,26 @@ const Tokenizer = struct {
         return false;
     }
 
-    fn tokenizeType(self: *Self) !Token {
+    fn tokenizeType(self: *Self) InputError!Token {
         const start = self.index;
         while (self.next()) |char| {
-            if (std.ascii.isControl(char) or std.ascii.isSpace(char) or anyOf(char, "(,)")) {
+            if (std.ascii.isControl(char) or std.ascii.isWhitespace(char) or anyOf(char, "(,)")) {
                 break;
             }
         } else |err| {
-            return self.handleError(err, start);
+            var t = try self.handleError(err, start);
+            t.kind = .Type;
+            return t;
         }
+
+        self.index -= 1;
         return Token{
-            .value = self.source[start..self.index],
+            .value = self.source[start .. self.index - 1],
             .kind = .Type,
         };
     }
 
-    fn nextToken(self: *Self) !Token {
+    fn nextToken(self: *Self) InputError!Token {
         self.skipWhitespace();
         const current = self.index;
         if (self.next()) |char| {
@@ -144,50 +150,57 @@ const Parser = struct {
         };
     }
 
-    fn expectToken(self: *Self, kind: Tokenizer.TokenType) !Tokenizer.Token {
+    fn expectToken(self: *Self, kind: Tokenizer.TokenType, should_print: bool) !Tokenizer.Token {
         const token = try self.tokenizer.nextToken();
         if (token.kind == kind) {
             return token;
-        } else {
+        } else if (token.kind != kind and should_print) {
             const stdout_file = std.io.getStdOut().writer();
             var bw = std.io.bufferedWriter(stdout_file);
             const out = bw.writer();
 
-            out.print("\nERROR: {}\n", .{error.UnexpectedToken}) catch return error.PrintError;
-            out.print("    expected token of kind {}\n", .{kind}) catch return error.PrintError;
+            out.print("\nERROR: {}\n", .{InputError.UnexpectedToken}) catch return InputError.PrintError;
+            out.print("    expected token of kind {}\n", .{kind}) catch return InputError.PrintError;
             out.print("    but got {} ('{s}')\n", .{
                 token.kind,
                 token.value,
-            }) catch return error.PrintError;
-            bw.flush() catch return error.FlushError;
+            }) catch return InputError.PrintError;
+            bw.flush() catch return InputError.PrintError;
 
             return error.UnexpectedToken;
         }
+
+        return error.UnexpectedToken;
     }
 
     fn parseParams(self: *Self, alloc: std.mem.Allocator) !std.ArrayList([]const u8) {
         var params = std.ArrayList([]const u8).init(alloc);
-        while (self.expectToken(.Type)) |token| {
+        while (self.expectToken(.Type, true)) |token| {
             try params.append(try alloc.dupe(u8, token.value));
-            const comma = self.expectToken(.Comma);
+            const comma = self.expectToken(.Comma, false);
             if (comma) |_| {} else |err| {
-                if (err != error.UnexpectedToken) {
-                    return err;
-                } else {
+                if (err == error.UnexpectedToken) {
+                    self.tokenizer.index -= 1;
                     break;
+                } else {
+                    return err;
                 }
+            }
+        } else |err| {
+            if (err != error.EndOfInput and err != error.UnexpectedToken) {
+                return err;
             }
         }
         return params;
     }
 
     fn parse(self: *Self, alloc: std.mem.Allocator) !defs.FunctionDef {
-        _ = try self.expectToken(.Keyword);
-        const identifier = self.expectToken(.Type) catch null;
-        _ = try self.expectToken(.ParanenthesisOpen);
+        _ = try self.expectToken(.Keyword, true);
+        const identifier = self.expectToken(.Type, true) catch null;
+        _ = try self.expectToken(.ParanenthesisOpen, true);
         const params = try self.parseParams(alloc);
-        _ = try self.expectToken(.ParanenthesisClose);
-        const returnType = try self.expectToken(.Type);
+        _ = try self.expectToken(.ParanenthesisClose, true);
+        const returnType = try self.expectToken(.Type, true);
         return defs.FunctionDef{
             .alloc = alloc,
             .name = if (identifier) |id| try alloc.dupe(u8, id.value) else try alloc.alloc(u8, 0),
