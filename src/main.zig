@@ -74,9 +74,14 @@ pub fn main() !void {
         try parsed_functions.appendSlice(functions.items);
     }
     const metrics = try matcher.match(allocator, in, parsed_functions.items);
+    std.mem.sort(matcher.MatchMetric, metrics, {}, struct {
+        fn lessThan(_: void, a: matcher.MatchMetric, b: matcher.MatchMetric) bool {
+            return a.value > b.value;
+        }
+    }.lessThan);
     defer allocator.free(metrics);
-    for (metrics) |m| {
-        std.debug.print("value {}: {s}\n", .{ m.value, try m.function.format() });
+    for (metrics[0..5]) |m| {
+        std.debug.print("{s}\n", .{try m.function.format()});
     }
     for (parsed_functions.items) |*f| {
         f.deinit();

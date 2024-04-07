@@ -1,7 +1,7 @@
 const std = @import("std");
 const defs = @import("definitions.zig");
 
-const MatchMetric = struct {
+pub const MatchMetric = struct {
     function: defs.FunctionDef,
     value: i32,
 };
