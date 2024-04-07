@@ -17,6 +17,10 @@ pub fn match(alloc: std.mem.Allocator, target: defs.FunctionDef, candidats: []de
     return metrics;
 }
 
+fn eqlCaseInsensitive(target: u8, candidat: u8) bool {
+    return std.ascii.toLower(target) == std.ascii.toLower(candidat);
+}
+
 fn matchLoosely(target: []const u8, candidat: []const u8) i32 {
     var current: usize = 0;
     var matchvalue: i32 = 0;
@@ -24,7 +28,7 @@ fn matchLoosely(target: []const u8, candidat: []const u8) i32 {
         if (current >= target.len) {
             break;
         }
-        if (c == target[current]) {
+        if (eqlCaseInsensitive(c, target[current])) {
             current += 1;
             matchvalue += 3;
         }
@@ -40,7 +44,7 @@ fn matchLooselyReversed(target: []const u8, candidat: []const u8) i32 {
     while (currentCandidat < candidat.len and currentTarget < target.len) {
         const charTarget = target[target.len - currentTarget - 1];
         const charCandidat = candidat[candidat.len - currentCandidat - 1];
-        if (charTarget == charCandidat) {
+        if (eqlCaseInsensitive(charTarget, charCandidat)) {
             currentTarget += 1;
             matchvalue += 3;
         }
