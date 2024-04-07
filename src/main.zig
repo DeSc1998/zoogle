@@ -16,44 +16,9 @@ fn collectArgs() !std.ArrayList([]const u8) {
     return args;
 }
 
-// for testing
-fn foo(c: u8) [10]u8 {
-    return [_]u8{c} ** 10;
 }
 
-// for testing
-fn Array(comptime T: type, comptime len: usize) type {
-    return [len]T;
-}
-
-// for testing
-fn bar(c: u8) Array(u8, 10) {
-    return [_]u8{c} ** 10;
-}
-
-pub const Foo = struct {
-    a: u8,
-    b: u8,
-    c: u8,
-
-    pub const Inner = struct {
-        a: u8,
-        b: u8,
-        c: u8,
-
-        pub fn format(self: Inner, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            _ = fmt;
-            _ = options;
-            try writer.print("a: {}, b: {}, c: {}", .{ self.a, self.b, self.c });
-        }
-    };
-
-    pub fn format(self: Foo, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
-        _ = options;
-        try writer.print("a: {}, b: {}, c: {}", .{ self.a, self.b, self.c });
     }
-};
 
 pub fn main() !void {
     const args = try collectArgs();
