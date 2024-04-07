@@ -168,8 +168,14 @@ fn collectReturnType(alloc: std.mem.Allocator, source: []const u8, returnNode: ?
         } else if (tree.NodeType.eql(.PrefixTypeOp, r)) {
             const end = traverseReturnType(alloc, source, r) catch return error.NodeNotFound;
             return try alloc.dupe(u8, source[r.start_byte()..end]);
+        } else if (std.mem.startsWith(u8, source[r.start_byte()..r.end_byte()], "callconv")) {
+            const end = try traverseReturnType(alloc, source, r.next_sibling()); // NOTE: ignoring call convention node for now
+            return try alloc.dupe(u8, source[r.start_byte()..end]);
         } else {
-            _ = try tree.expectNodeBySlice(r, "!");
+            _ = tree.expectNodeBySlice(r, "!") catch |err| {
+                std.debug.print("{s}\n", .{try nodeToSlice(alloc, source, r)});
+                return err;
+            };
             const next = r.next_sibling() orelse return error.NodeNotFound;
             const end = traverseReturnType(alloc, source, next) catch return error.NodeNotFound;
             return try alloc.dupe(u8, source[r.start_byte()..end]);
