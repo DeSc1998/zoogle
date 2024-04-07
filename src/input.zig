@@ -20,7 +20,6 @@ const Tokenizer = struct {
         kind: TokenType,
     };
     const TokenType = enum {
-        Keyword,
         Identifier,
         ParanenthesisOpen,
         ParanenthesisClose,
@@ -133,13 +132,6 @@ const Tokenizer = struct {
                     .value = self.source[current..self.index],
                     .kind = .Comma,
                 },
-                'f' => {
-                    const c = if (self.next()) |c| c else |err| return self.handleError(err, current);
-                    if (c == 'n') return Token{ .value = self.source[current..self.index], .kind = .Keyword } else {
-                        self.index = current;
-                        return self.tokenizeType();
-                    }
-                },
                 else => {
                     self.index = current;
                     return self.tokenizeType();
@@ -176,12 +168,13 @@ const Parser = struct {
 
             out.print("\nERROR: {}\n", .{InputError.UnexpectedToken}) catch return InputError.PrintError;
             out.print("    expected token of kind {}\n", .{kind}) catch return InputError.PrintError;
-            out.print("    but got {} ('{s}')\n", .{
+            out.print("    but got token of kind  {} ('{s}')\n", .{
                 token.kind,
                 token.value,
             }) catch return InputError.PrintError;
             bw.flush() catch return InputError.PrintError;
         }
+        self.tokenizer.revertToken(token);
 
         return error.UnexpectedToken;
     }
@@ -193,7 +186,6 @@ const Parser = struct {
             const comma = self.expectToken(.Comma, false);
             if (comma) |_| {} else |err| {
                 if (err == error.UnexpectedToken) {
-                    self.tokenizer.index -= 1;
                     break;
                 } else {
                     return err;
@@ -203,13 +195,11 @@ const Parser = struct {
             if (err != InputError.EndOfInput and err != InputError.UnexpectedToken) {
                 return err;
             }
-            self.tokenizer.revertToken(null);
         }
         return params;
     }
 
     fn parse(self: *Self, alloc: std.mem.Allocator) !defs.FunctionDef {
-        _ = try self.expectToken(.Keyword, true);
         const identifier = self.expectToken(.Type, true) catch null;
         _ = try self.expectToken(.ParanenthesisOpen, true);
         const params = try self.parseParams(alloc);
