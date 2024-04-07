@@ -12,6 +12,7 @@ const InputError = error{
 const Tokenizer = struct {
     source: []const u8,
     index: usize,
+    last_token: ?Token = null,
 
     const Self = @This();
     const Token = struct {
@@ -35,6 +36,18 @@ const Tokenizer = struct {
         const c = self.source[self.index];
         self.index += 1;
         return c;
+    }
+
+    fn revertToken(self: *Self, token: ?Token) void {
+        if (token) |t| {
+            self.index -= t.value.len;
+        } else {
+            if (self.last_token) |t| {
+                self.index -= t.value.len;
+            } else {
+                self.index = 0;
+            }
+        }
     }
 
     fn handleError(self: Self, err: InputError, start: usize) InputError!Token {
@@ -95,10 +108,12 @@ const Tokenizer = struct {
         }
 
         self.index -= 1;
-        return Token{
+        const token = Token{
             .value = self.source[start .. self.index - 1],
             .kind = .Type,
         };
+        self.last_token = token;
+        return token;
     }
 
     fn nextToken(self: *Self) InputError!Token {
@@ -150,11 +165,11 @@ const Parser = struct {
         };
     }
 
-    fn expectToken(self: *Self, kind: Tokenizer.TokenType, should_print: bool) !Tokenizer.Token {
+    fn expectToken(self: *Self, kind: Tokenizer.TokenType, should_print_error: bool) InputError!Tokenizer.Token {
         const token = try self.tokenizer.nextToken();
         if (token.kind == kind) {
             return token;
-        } else if (token.kind != kind and should_print) {
+        } else if (token.kind != kind and should_print_error) {
             const stdout_file = std.io.getStdOut().writer();
             var bw = std.io.bufferedWriter(stdout_file);
             const out = bw.writer();
@@ -166,8 +181,6 @@ const Parser = struct {
                 token.value,
             }) catch return InputError.PrintError;
             bw.flush() catch return InputError.PrintError;
-
-            return error.UnexpectedToken;
         }
 
         return error.UnexpectedToken;
@@ -175,7 +188,7 @@ const Parser = struct {
 
     fn parseParams(self: *Self, alloc: std.mem.Allocator) !std.ArrayList([]const u8) {
         var params = std.ArrayList([]const u8).init(alloc);
-        while (self.expectToken(.Type, true)) |token| {
+        while (self.expectToken(.Type, false)) |token| {
             try params.append(try alloc.dupe(u8, token.value));
             const comma = self.expectToken(.Comma, false);
             if (comma) |_| {} else |err| {
@@ -187,9 +200,10 @@ const Parser = struct {
                 }
             }
         } else |err| {
-            if (err != error.EndOfInput and err != error.UnexpectedToken) {
+            if (err != InputError.EndOfInput and err != InputError.UnexpectedToken) {
                 return err;
             }
+            self.tokenizer.revertToken(null);
         }
         return params;
     }
