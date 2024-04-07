@@ -28,11 +28,16 @@ pub fn filterZigFiles(alloc: std.mem.Allocator, files: std.ArrayList([]const u8)
 }
 
 pub fn stdFiles(alloc: std.mem.Allocator, version: []const u8) !std.ArrayList([]const u8) {
-    const stdPath = findStdFromZigup(alloc, version) catch "/usr/lib/zig/std";
-    var dir = try std.fs.openDirAbsolute(stdPath, .{});
+    const stdPath = findStdFromZigup(alloc, version) catch |err| b: {
+        std.debug.print("{}\n", .{err});
+        break :b "/usr/lib/zig/std";
+    };
+    var dir = std.fs.openDirAbsolute(stdPath, .{}) catch unreachable;
     defer dir.close();
-    const files = filesOfDir(alloc, dir.makeOpenPathIterable(".", .{}));
-    return files;
+    const files = try filesOfDir(alloc, try dir.makeOpenPathIterable(".", .{}));
+    defer files.deinit();
+    const _files = try filterZigFiles(alloc, files);
+    return _files;
 }
 
 fn findStdFromZigup(alloc: std.mem.Allocator, version: []const u8) ![]const u8 {
@@ -42,16 +47,16 @@ fn findStdFromZigup(alloc: std.mem.Allocator, version: []const u8) ![]const u8 {
     const home = std.os.getenv("HOME") orelse return error.HomeEnvNotSet;
     const zig = try std.fs.path.join(alloc, &[_][]const u8{ home, "zig", version, "files/lib/std" });
     defer alloc.free(zig);
-
-    if (std.fs.accessAbsolute(zig, .{})) |_| {
-        return zig;
-    } else |_| {
-        return error.DirectoryNotFound;
-    }
+    var buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const path = std.fs.realpath(zig, &buffer) catch |err| {
+        std.debug.print("{}\n", .{err});
+        return err;
+    };
+    return path;
 }
 
 fn isZigupinstalled() bool {
-    const binDir = std.fs.openDirAbsolute("/usr/bin", .{}) catch return false; // TODO: only works on linux
+    var binDir = std.fs.openDirAbsolute("/usr/bin", .{}) catch return false; // TODO: only works on linux
     defer binDir.close();
     binDir.access("zigup", .{}) catch return false;
     return true;
